@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Local TTS Box Engine</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            user-select: none;
+        }
+
+        #tts-container {
+            display: none;
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 650px;
+            background: rgba(20, 20, 20, 0.9);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 9999;
+        }
+
+        .gender-selector {
+            display: flex;
+            gap: 4px;
+            background: #2b2b2b;
+            padding: 3px;
+            border-radius: 5px;
+        }
+
+        .gender-btn {
+            background: transparent;
+            color: #b3b3b3;
+            border: none;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .gender-btn.active {
+            background: #4a90e2;
+            color: white;
+        }
+
+        .gender-btn#female.active {
+            background: #e24a8d;
+        }
+
+        #tts-expression {
+            background: #2b2b2b;
+            color: #b3b3b3;
+            border: none;
+            padding: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            border-radius: 5px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        #tts-input {
+            flex-grow: 1;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            color: white;
+            padding: 8px 12px;
+            font-size: 14px;
+            border-radius: 5px;
+            outline: none;
+        }
+
+        #tts-input:focus {
+            border-color: #4a90e2;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="tts-container" style="display: none;">
+        <div class="gender-selector">
+            <button id="male" class="gender-btn active" onclick="setGender('male')">Male</button>
+            <button id="female" class="gender-btn" onclick="setGender('female')">Female</button>
+        </div>
+
+        <select id="tts-expression">
+            <option value="normal">Normal 😐</option>
+            <option value="excited">Excited 🤩</option>
+            <option value="sad">Sad 😔</option>
+            <option value="angry">Angry 🤬</option>
+        </select>
+
+        <input type="text" id="tts-input" placeholder="Type what you want to say..." autocomplete="off">
+    </div>
+
+    <script>
+        let currentGender = "male";
+
+        function setGender(gender) {
+            currentGender = gender;
+            document.querySelectorAll('.gender-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(gender).classList.add('active');
+            document.getElementById('tts-input').focus();
+        }
+
+        window.addEventListener('message', function(event) {
+            const data = event.data;
+
+            if (data.action === "openTTSBox") {
+                document.getElementById('tts-container').style.display = 'flex';
+                const input = document.getElementById('tts-input');
+                input.value = "";
+                setTimeout(() => input.focus(), 50);
+            }
+
+            if (data.action === "playTTS") {
+                if (!window.speechSynthesis) return;
+
+                // Stop any running speech instantly to clear memory channels
+                window.speechSynthesis.cancel();
+
+                let processedText = data.text;
+                let expressionKey = data.expression || "normal";
+
+                // EXTREME ANGRY HACK: Force punctuation breakdown for aggressive, staccato delivery
+                if (expressionKey === "angry") {
+                    processedText = data.text
+                        .replace(/\s+/g, '! ') // Replaces spaces with exclamation points for a barking cadence
+                        .toUpperCase();        // Forces loud/harsher vocal emphasis on supported engines
+                }
+
+                const utterance = new SpeechSynthesisUtterance(processedText);
+                const voices = window.speechSynthesis.getVoices();
+                let selectedVoice = null;
+                
+                // Voice lookup modifiers to match hardware sets
+                let searchTerms = [];
+
+                if (data.gender === "female") {
+                    if (expressionKey === "excited") searchTerms = ["zira", "natural", "female", "google"];
+                    else if (expressionKey === "sad") searchTerms = ["hazel", "female", "zira"];
+                    else if (expressionKey === "angry") searchTerms = ["susan", "female", "zira"];
+                    else searchTerms = ["zira", "female", "google us english"];
+                } else {
+                    if (expressionKey === "excited") searchTerms = ["george", "natural", "male", "david"];
+                    else if (expressionKey === "sad") searchTerms = ["sean", "male", "david"];
+                    else if (expressionKey === "angry") searchTerms = ["david", "male"];
+                    else searchTerms = ["david", "male", "google uk english male"];
+                }
+
+                // Look for an exact match based on the system voice availability
+                for (let term of searchTerms) {
+                    selectedVoice = voices.find(v => v.name.toLowerCase().includes(term));
+                    if (selectedVoice) break;
+                }
+
+                if (selectedVoice) utterance.voice = selectedVoice;
+                
+                // Heavily exaggerated speed/pitch modifiers to break system flat-lines
+                let speedRate = 1.0;
+                let soundPitch = 1.0;
+
+                if (expressionKey === "excited") {
+                    speedRate = 1.65;  // Extreme fast talking speed
+                    soundPitch = 1.85; // High, energized cartoonish pitch
+                } else if (expressionKey === "sad") {
+                    speedRate = 0.60;  // Very slow, heavily dragged-out speech
+                    soundPitch = 0.50; // Deep, somber, dropping vocal tone
+                } else if (expressionKey === "angry") {
+                    speedRate = 1.70;  // Rapid, aggressive clip pacing
+                    soundPitch = 0.55; // Pushed deep into a low, aggressive growl/grunt tone
+                }
+
+                utterance.volume = data.volume || 1.0;
+                utterance.rate = speedRate;   
+                utterance.pitch = soundPitch; 
+
+                window.speechSynthesis.speak(utterance);
+            }
+        });
+
+        document.getElementById('tts-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const textVal = this.value.trim();
+                const expressionVal = document.getElementById('tts-expression').value;
+                
+                if (textVal !== "") {
+                    fetch(`https://${GetParentResourceName()}/submitTTS`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            text: textVal, 
+                            gender: currentGender,
+                            expression: expressionVal 
+                        })
+                    });
+                    
+                    this.value = "";
+                }
+            } else if (e.key === 'Escape') {
+                closeUI();
+            }
+        });
+
+        function closeUI() {
+            document.getElementById('tts-container').style.display = 'none';
+            fetch(`https://${GetParentResourceName()}/closeUI`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+        }
+
+        // Keep core voices cache active inside the engine loops
+        if (window.speechSynthesis) {
+            window.speechSynthesis.getVoices();
+            if (window.speechSynthesis.onvoiceschanged !== undefined) {
+                window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+            }
+        }
+    </script>
+</body>
+</html>
